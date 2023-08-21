@@ -2,14 +2,24 @@
 
 #[ink::contract]
 mod phat_hello {
-
-    use ink::{prelude::string::String, codegen::StaticEnv};
+    use ink::prelude::string::String;
     use ink::prelude::vec::Vec;
-    use scale::{Decode, Encode, EncodeLike};
-    use serde::Deserialize;
     use ink::storage::Mapping;
-    use ink::storage::traits::Packed;
+    // use ink_env::account_balance;
 
+
+
+    #[derive(Encode, Decode, Debug, PartialEq, Eq, Copy, Clone)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum Error {
+        NotOwner,
+        NotApproved,
+        TokenExists,
+        TokenNotFound,
+        CannotInsert,
+        CannotFetchValue,
+        NotAllowed,
+    }
 
     #[derive(scale::Decode, scale::Encode)]
     #[cfg_attr(
@@ -18,16 +28,20 @@ mod phat_hello {
     pub struct PromptNFT {
         id: String,
         title: String,
-        owner: String,
+        owner: AccountId,
         type_: String,
         price: Balance,
         prompt_id: String
     }
 
+    #[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
     #[ink(event)]
     pub struct Transferred {
         from: Option<AccountId>,
-        to: Option<String>,
+        to: Option<AccountId>,
+        sattus: String,
         value: Balance,
     }
     
@@ -35,7 +49,7 @@ mod phat_hello {
     pub struct PromptMarketplaceContract {
         base_name: String,
         nfts: Vec<String>,
-        nft_by_id: Mapping<String, (String, String, String, Balance, String)>,
+        nft_by_id: Mapping<String, (String, AccountId, String, Balance, String)>,
         nfts_by_owner: Mapping<String, Vec<String>>
     }
 
@@ -52,7 +66,7 @@ mod phat_hello {
         }
 
         #[ink(message)]
-        pub fn new_prompt(&mut self, id: String, title: String, caller: String, type_: String, price: Balance, prompt_id: String) -> PromptNFT {
+        pub fn new_prompt(&mut self, id: String, title: String, caller: AccountId, type_: String, price: Balance, prompt_id: String) -> PromptNFT {
             let prompt = PromptNFT {
                 id: id.clone(),
                 title: title.clone(),
@@ -127,16 +141,22 @@ mod phat_hello {
         } 
 
         #[ink(message, payable)]
-        pub fn payment(&self, nft_id: String) {
+        pub fn payment(&mut self, nft_id: String) -> Result<(), Error> {
             let caller = self.env().caller();
-            assert!(self.nft_by_id.contains(nft_id.clone()), "Prompt is not valid!");
-            let nft = self.nft_by_id.get(nft_id).unwrap();
+            let nft = self.nft_by_id.get(nft_id.clone()).unwrap();
             let owner = nft.1;
+            let deposit = self.env().balance();
+            assert!(self.nft_by_id.contains(nft_id.clone()), "Prompt is not valid!");
+            assert_eq!(deposit, nft.3, "wrong deposit!");
             self.env().emit_event(Transferred {
-                from: Some(caller),
-                to: Some(owner),
+                from: Some(caller.clone()),
+                to: Some(owner.clone()),
+                sattus: String::from("Successful"),
                 value: nft.3,
             });
+            self.env().transfer(owner, nft.3).expect("transfer failed");
+            self.nft_by_id.insert(nft_id, &(nft.0, caller, nft.2, nft.3, nft.4));
+            Ok(())
         }
 
 
