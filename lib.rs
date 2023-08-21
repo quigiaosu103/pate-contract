@@ -1,100 +1,145 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
-extern crate alloc;
 
-// pink_extension is short for Phala ink! extension
-use pink_extension as pink;
-
-#[pink::contract(env=PinkEnvironment)]
+#[ink::contract]
 mod phat_hello {
-    use super::pink;
-    use alloc::{format, string::String};
-    use pink::{http_get, PinkEnvironment};
-    use scale::{Decode, Encode};
+
+    use ink::{prelude::string::String, codegen::StaticEnv};
+    use ink::prelude::vec::Vec;
+    use scale::{Decode, Encode, EncodeLike};
     use serde::Deserialize;
-    // you have to use crates with `no_std` support in contract.
-    use serde_json_core;
+    use ink::storage::Mapping;
+    use ink::storage::traits::Packed;
 
-    #[derive(Debug, PartialEq, Eq, Encode, Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-    pub enum Error {
-        InvalidEthAddress,
-        HttpRequestFailed,
-        InvalidResponseBody,
+
+    #[derive(scale::Decode, scale::Encode)]
+    #[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+    pub struct PromptNFT {
+        id: String,
+        title: String,
+        owner: String,
+        type_: String,
+        price: Balance,
+        prompt_id: String
     }
 
-    /// Type alias for the contract's result type.
-    pub type Result<T> = core::result::Result<T, Error>;
-
-    /// Defines the storage of your contract.
-    /// All the fields will be encrypted and stored on-chain.
-    /// In this stateless example, we just add a useless field for demo.
+    #[ink(event)]
+    pub struct Transferred {
+        from: Option<AccountId>,
+        to: Option<String>,
+        value: Balance,
+    }
+    
     #[ink(storage)]
-    pub struct PhatHello {
-        demo_field: bool,
+    pub struct PromptMarketplaceContract {
+        base_name: String,
+        nfts: Vec<String>,
+        nft_by_id: Mapping<String, (String, String, String, Balance, String)>,
+        nfts_by_owner: Mapping<String, Vec<String>>
     }
 
-    #[derive(Deserialize, Encode, Clone, Debug, PartialEq)]
-    pub struct EtherscanResponse<'a> {
-        status: &'a str,
-        message: &'a str,
-        result: &'a str,
-    }
-
-    impl PhatHello {
-        /// Constructor to initializes your contract
+    impl PromptMarketplaceContract {
+        /// Constructor to initializes
         #[ink(constructor)]
         pub fn new() -> Self {
-            Self { demo_field: true }
+            Self { 
+                base_name: String::from("prompt marketplace"),
+                nfts: Vec::new(),
+                nft_by_id: Mapping::new(),
+                nfts_by_owner: Mapping::new()
+            }
         }
 
-        /// A function to handle direct off-chain Query from users.
-        /// Such functions use the immutable reference `&self`
-        /// so WILL NOT change the contract state.
         #[ink(message)]
-        pub fn get_eth_balance(&self, account: String) -> Result<String> {
-            if !account.starts_with("0x") && account.len() != 42 {
-                return Err(Error::InvalidEthAddress);
-            }
+        pub fn new_prompt(&mut self, id: String, title: String, caller: String, type_: String, price: Balance, prompt_id: String) -> PromptNFT {
+            let prompt = PromptNFT {
+                id: id.clone(),
+                title: title.clone(),
+                owner: caller.clone(),
+                type_: type_.clone(),
+                price: price.clone(),
+                prompt_id: prompt_id.clone()
+            };
+            let mut vec_nfts = self.nfts_by_owner.get(id.clone()).unwrap_or_else(|| Vec::new());
+            vec_nfts.push(id.clone());
+            self.nfts.push(id.clone());
+            self.nft_by_id.insert(id.clone(), &(title, caller, type_, 1, prompt_id));
+            self.nfts_by_owner.insert(id, &vec_nfts);
+            prompt
 
-            // get account ETH balance with HTTP requests to Etherscan
-            // you can send any HTTP requests in Query handler
-            let resp = http_get!(format!(
-                "https://api.etherscan.io/api?module=account&action=balance&address={}",
-                account
-            ));
-            if resp.status_code != 200 {
-                return Err(Error::HttpRequestFailed);
-            }
-
-            let result: EtherscanResponse = serde_json_core::from_slice(&resp.body)
-                .or(Err(Error::InvalidResponseBody))?
-                .0;
-            Ok(String::from(result.result))
         }
+
+        #[ink(message)]
+        pub fn get_prompt_by_id(&self, key: String) -> PromptNFT {
+            let a = self.nft_by_id.get(key.clone()).unwrap();
+            PromptNFT {
+                id: key,
+                title: a.0,
+                owner: a.1,
+                type_: a.2,
+                price: a.3,
+                prompt_id: a.4,
+            }
+        }
+        
+        #[ink(message)]
+        pub fn get_all_prompts(&self) -> Vec<PromptNFT> {
+            let mut nfts: Vec<PromptNFT> = Vec::new();
+            let ids = &self.nfts;
+            for i in ids{
+                let nft = self.nft_by_id.get(i.clone()).unwrap();
+                nfts.push(PromptNFT {
+                    id: String::from(i),
+                    title: nft.0,
+                    owner: nft.1,
+                    type_: nft.2,
+                    price: nft.3,
+                    prompt_id: nft.4
+                })
+            }
+            nfts
+        }
+
+        #[ink(message)]
+        pub fn update_price(&mut self, id: String, price: Balance) -> String{
+            let nft  = self.nft_by_id.get(id.clone()).unwrap();
+            self.nft_by_id.insert(id.clone(), &(nft.0, nft.1, nft.2, price, nft.4));
+            String::from("update price prompt_id: {id}, price: {price}")
+        }
+
+        #[ink(message)]
+        pub fn get_prompts_by_owner(&self, owner_id: String) -> Vec<PromptNFT> {
+            let mut vec_nfts: Vec<PromptNFT> = Vec::new();
+            let vec_ids = self.nfts_by_owner.get(owner_id).unwrap_or_else(|| Vec::new());
+            for i in vec_ids {
+                let nft = self.nft_by_id.get(i.clone()).unwrap();
+                vec_nfts.push(PromptNFT {
+                    id: String::from(i),
+                    title: nft.0,
+                    owner: nft.1,
+                    type_: nft.2,
+                    price: nft.3,
+                    prompt_id: nft.4
+                });
+            }
+            vec_nfts
+        } 
+
+        #[ink(message, payable)]
+        pub fn payment(&self, nft_id: String) {
+            let caller = self.env().caller();
+            assert!(self.nft_by_id.contains(nft_id.clone()), "Prompt is not valid!");
+            let nft = self.nft_by_id.get(nft_id).unwrap();
+            let owner = nft.1;
+            self.env().emit_event(Transferred {
+                from: Some(caller),
+                to: Some(owner),
+                value: nft.3,
+            });
+        }
+
+
     }
 
-    /// Unit tests in Rust are normally defined within such a `#[cfg(test)]`
-    /// module and test functions are marked with a `#[test]` attribute.
-    /// The below code is technically just normal Rust code.
-    #[cfg(test)]
-    mod tests {
-        /// Imports all the definitions from the outer scope so we can use them here.
-        use super::*;
-
-        /// We test a simple use case of our contract.
-        #[ink::test]
-        fn it_works() {
-            // when your contract is really deployed, the Phala Worker will do the HTTP requests
-            // mock is needed for local test
-            pink_extension_runtime::mock_ext::mock_all_ext();
-
-            let phat_hello = PhatHello::new();
-            let account = String::from("0xD0fE316B9f01A3b5fd6790F88C2D53739F80B464");
-            let res = phat_hello.get_eth_balance(account.clone());
-            assert!(res.is_ok());
-
-            // run with `cargo +nightly test -- --nocapture` to see the following output
-            println!("Account {} gets {} Wei", account, res.unwrap());
-        }
-    }
 }
