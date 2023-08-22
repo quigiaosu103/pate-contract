@@ -29,3 +29,41 @@ To test your contract locally and see its output, run with
 ```bash
 cargo test -- --nocapture
 ```
+
+https://api.openai.com/v1/images/generations \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer "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"" \
+  -d '{
+    "prompt": "a white siamese cat",
+    "n": 1,
+    "size": "256x256"
+  }'
+
+  #[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::builder()
+        .build()?;
+
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert("Content-Type", "application/json".parse()?);
+    headers.insert("Authorization", "Bearer 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".parse()?);
+
+    let data = r#"{
+    "prompt": "a white siamese cat",
+    "n": 1,
+    "size": "256x256"
+}"#;
+
+    let json: serde_json::Value = serde_json::from_str(&data)?;
+
+    let request = client.request(reqwest::Method::POST, "https://api.openai.com/v1/images/generations")
+        .headers(headers)
+        .json(&json);
+
+    let response = request.send().await?;
+    let body = response.text().await?;
+
+    println!("{}", body);
+
+    Ok(())
+}

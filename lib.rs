@@ -5,11 +5,13 @@ mod phat_hello {
     use ink::prelude::string::String;
     use ink::prelude::vec::Vec;
     use ink::storage::Mapping;
+    use pink_extension::{http_post, http_get};
+
     // use ink_env::account_balance;
 
 
 
-    #[derive(Encode, Decode, Debug, PartialEq, Eq, Copy, Clone)]
+    #[derive(scale::Encode, scale::Decode, Debug, PartialEq, Eq, Copy, Clone)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum Error {
         NotOwner,
@@ -50,7 +52,7 @@ mod phat_hello {
         base_name: String,
         nfts: Vec<String>,
         nft_by_id: Mapping<String, (String, AccountId, String, Balance, String)>,
-        nfts_by_owner: Mapping<String, Vec<String>>
+        nfts_by_owner: Mapping<AccountId, Vec<String>>
     }
 
     impl PromptMarketplaceContract {
@@ -66,20 +68,21 @@ mod phat_hello {
         }
 
         #[ink(message)]
-        pub fn new_prompt(&mut self, id: String, title: String, caller: AccountId, type_: String, price: Balance, prompt_id: String) -> PromptNFT {
+        pub fn new_prompt(&mut self, id: String, title: String, type_: String, price: Balance, prompt_content: String) -> PromptNFT {
+            let caller = self.env().caller();
             let prompt = PromptNFT {
                 id: id.clone(),
                 title: title.clone(),
                 owner: caller.clone(),
                 type_: type_.clone(),
                 price: price.clone(),
-                prompt_id: prompt_id.clone()
+                prompt_id: prompt_content.clone()
             };
-            let mut vec_nfts = self.nfts_by_owner.get(id.clone()).unwrap_or_else(|| Vec::new());
+            let mut vec_nfts = self.nfts_by_owner.get(caller.clone()).unwrap_or_else(|| Vec::new());
             vec_nfts.push(id.clone());
             self.nfts.push(id.clone());
-            self.nft_by_id.insert(id.clone(), &(title, caller, type_, 1, prompt_id));
-            self.nfts_by_owner.insert(id, &vec_nfts);
+            self.nft_by_id.insert(id.clone(), &(title, caller, type_, price, prompt_content));
+            self.nfts_by_owner.insert(caller, &vec_nfts);
             prompt
 
         }
@@ -123,7 +126,7 @@ mod phat_hello {
         }
 
         #[ink(message)]
-        pub fn get_prompts_by_owner(&self, owner_id: String) -> Vec<PromptNFT> {
+        pub fn get_prompts_by_owner(&self, owner_id: AccountId) -> Vec<PromptNFT> {
             let mut vec_nfts: Vec<PromptNFT> = Vec::new();
             let vec_ids = self.nfts_by_owner.get(owner_id).unwrap_or_else(|| Vec::new());
             for i in vec_ids {
@@ -159,6 +162,82 @@ mod phat_hello {
             Ok(())
         }
 
+        // #[ink(message)]
+        // pub fn request(&self) -> String {
+        //     let mut headers: Vec<(String, String)> = Vec::new();
+        //     headers.push((String::from("Content-Type"), String::from("application/json")));
+        //     headers.push((String::from("Authorization"), String::from("Bearer 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")));
+        //     // let headers = vec![
+        //     //     ("Content-Type".to_string(), "application/json".to_string()),
+        //     //     ("Authorization".to_string(), format!("Bearer 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")),
+        //     // ];
+            
+        //     let data = r#"
+        //     {
+        //         "prompt": "a white siamese cat",
+        //         "n": 1,
+        //         "size": "1024x1024"
+        //     }
+        //     "#;
+
+        //     let response = http_post!("https://api.openai.com/v1/images/generations", data, headers);
+        //     let a = response.reason_phrase;
+        //     // Process the response as needed
+        //     a
+        // }
+        #[ink(message)]
+        pub fn get_request_status_code(&self) -> u16 {
+            let mut headers: Vec<(String, String)> = Vec::new();
+            headers.push((String::from("Content-Type"), String::from("application/json")));
+            headers.push((String::from("Authorization"), String::from("Bearer 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")));
+            // let headers = vec![
+            //     ("Content-Type".to_string(), "application/json".to_string()),
+            //     ("Authorization".to_string(), format!("Bearer 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")),
+            // ];
+            
+            let data = r#"
+            {
+                "prompt": "a white siamese cat",
+                "n": 1,
+                "size": "1024x1024"
+            }
+            "#;
+
+            let response: pink_extension::chain_extension::HttpResponse = http_get!("https://jsonplaceholder.typicode.com/todos/1");
+            let a = response.status_code;
+            // Process the response as needed
+            a
+        }
+        
+        #[ink(message)]
+        pub fn http_get_example(&self) {
+            let response = http_get!("https://jsonplaceholder.typicode.com/todos/1");
+            assert_eq!(response.status_code, 200);
+        }
+
+        #[ink(message)]
+        pub fn get_request(&self) -> Vec<u8>{
+            let mut headers: Vec<(String, String)> = Vec::new();
+            headers.push((String::from("Content-Type"), String::from("application/json")));
+            headers.push((String::from("Authorization"), String::from("Bearer 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")));
+            // let headers = vec![
+            //     ("Content-Type".to_string(), "application/json".to_string()),
+            //     ("Authorization".to_string(), format!("Bearer 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")),
+            // ];
+            
+            let data = r#"
+            {
+                "prompt": "a white siamese cat",
+                "n": 1,
+                "size": "1024x1024"
+            }
+            "#;
+
+            let response = http_get!("https://jsonplaceholder.typicode.com/todos/1");
+            let a = response.body;
+            // Process the response as needed
+            a
+        }
 
     }
 
